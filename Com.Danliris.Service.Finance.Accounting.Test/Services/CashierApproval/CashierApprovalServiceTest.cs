@@ -7,6 +7,7 @@ using Com.Danliris.Service.Finance.Accounting.Test.DataUtils.CashierApproval;
 using Com.Danliris.Service.Finance.Accounting.Test.Helpers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using System;
 using System.Collections.Generic;
@@ -37,12 +38,30 @@ namespace Com.Danliris.Service.Finance.Accounting.Test.Services.Non_POApproval
             return string.Concat(sf.GetMethod().Name, "_", ENTITY);
         }
 
+        protected string GetCurrentAsyncMethod([CallerMemberName] string methodName = "")
+        {
+            var method = new StackTrace()
+                .GetFrames()
+                .Select(frame => frame.GetMethod())
+                .FirstOrDefault(item => item.Name == methodName);
+
+            return method.Name;
+
+        }
+
+        
+
         private FinanceDbContext _dbContext(string testName)
         {
+            var serviceProvider = new ServiceCollection()
+                .AddEntityFrameworkInMemoryDatabase()
+                .BuildServiceProvider();
+
             DbContextOptionsBuilder<FinanceDbContext> optionsBuilder = new DbContextOptionsBuilder<FinanceDbContext>();
             optionsBuilder
                 .UseInMemoryDatabase(testName)
-                .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning));
+                .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
+                .UseInternalServiceProvider(serviceProvider);
 
             FinanceDbContext dbContext = new FinanceDbContext(optionsBuilder.Options);
 
@@ -236,8 +255,6 @@ namespace Com.Danliris.Service.Finance.Accounting.Test.Services.Non_POApproval
         [Fact]
         public async Task Should_Fail_Delete_Approval_Non_PO()
         {
-            CashierApprovalService service = new CashierApprovalService(GetServiceProvider().Object, _dbContext(GetCurrentMethod()));
-            VbRequestModel model = await _dataUtil(service).GetTestData();
 
             var serviceProvider = new Mock<IServiceProvider>();
 
@@ -254,18 +271,36 @@ namespace Com.Danliris.Service.Finance.Accounting.Test.Services.Non_POApproval
                .Setup(x => x.GetService(typeof(IIdentityService)))
                .Returns(mockIdentity.Object);
 
-            service = new CashierApprovalService(serviceProvider.Object, _dbContext(GetCurrentMethod()));
+            CashierApprovalService service = new CashierApprovalService(serviceProvider.Object, _dbContext(GetCurrentAsyncMethod()));
+            VbRequestModel vbRequest = new VbRequestModel()
+            {
+                VBNo = "VBNo",
+                Date = DateTimeOffset.UtcNow,
+                DateEstimate = DateTimeOffset.UtcNow,
+                UnitId = 1,
+                UnitCode = "UnitCode",
+                UnitName = "UnitName",
+                CurrencyId = 1,
+                CurrencyCode = "CurrencyCode",
+                CurrencyRate = 123,
+                CurrencySymbol = "CurrencySymbol",
+                Amount = 123,
+                Usage = "Usage",
+                UnitLoad = "UnitLoad",
+                Apporve_Status = false,
+                Complete_Status = false,
+                VBRequestCategory = "NONPO",
+                CreatedBy = "CreatedBy"
+            };
+
+            service.DbContext.VbRequests.Add(vbRequest);
+            service.DbContext.SaveChanges();
             
-            await Assert.ThrowsAnyAsync<Exception>(() => service.DeleteCashierAproval(model.Id));
+
+            await Assert.ThrowsAnyAsync<Exception>(() => service.DeleteCashierAproval(1));
 
         }
 
-        [Fact]
-        public async Task Should_Fail_Delete_Empty_Id()
-        {
-            CashierApprovalService service = new CashierApprovalService(GetServiceProvider().Object, _dbContext(GetCurrentMethod()));
-            var deleteResponse = await service.DeleteCashierAproval(1);
-            Assert.Equal(0, deleteResponse);
-        }
+        
     }
 }
